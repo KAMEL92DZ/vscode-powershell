@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.4
+.VERSION 1.4.3
 
 .GUID 539e5585-7a02-4dd6-b9a6-5dd288d0a5d0
 
@@ -12,9 +12,9 @@
 
 .TAGS install vscode installer
 
-.LICENSEURI https://github.com/PowerShell/vscode-powershell/blob/develop/LICENSE.txt
+.LICENSEURI https://github.com/PowerShell/vscode-powershell/blob/main/LICENSE.txt
 
-.PROJECTURI https://github.com/PowerShell/vscode-powershell/blob/develop/scripts/Install-VSCode.ps1
+.PROJECTURI https://github.com/PowerShell/vscode-powershell/blob/main/scripts/Install-VSCode.ps1
 
 .ICONURI
 
@@ -25,18 +25,25 @@
 .EXTERNALSCRIPTDEPENDENCIES
 
 .RELEASENOTES
-    30/08/2019 - added functionality to install the "User Install" variant of Stable Edition.
+    02/06/2021 - Fix an architecture check issue with non-English localizations.
     --
-    07/11/2018 - added support for PowerShell Core and macOS/Linux platforms.
+    01/04/2021 - Fix host for downloading VSCode.
     --
-    15/08/2018 - added functionality to install the new "User Install" variant of Insiders Edition.
+    07/10/2019 - Fix a version check when installing user-builds with Windows Powershell greater than 5.
     --
-    21/03/2018 - added functionality to install the VSCode context menus. Also, VSCode is now always added to the search path
+    30/08/2019 - Added functionality to install the "User Install" variant of Stable Edition.
     --
-    20/03/2018 - fix OS detection to prevent error
+    07/11/2018 - Added support for PowerShell Core and macOS/Linux platforms.
     --
-    28/12/2017 - added functionality to support 64-bit versions of VSCode
-    & support for installation of VSCode Insiders Edition.
+    15/08/2018 - Added functionality to install the new "User Install" variant of Insiders Edition.
+    --
+    21/03/2018 - Added functionality to install the VSCode context menus.
+                 Also, VSCode is now always added to the search path.
+    --
+    20/03/2018 - Fix OS detection to prevent error
+    --
+    28/12/2017 - Added functionality to support 64-bit versions of VSCode
+                 and support for installation of VSCode Insiders Edition.
     --
     Initial release.
 #>
@@ -55,7 +62,7 @@
 
     Please contribute improvements to this script on GitHub!
 
-    https://github.com/PowerShell/vscode-powershell/blob/develop/scripts/Install-VSCode.ps1
+    https://github.com/PowerShell/vscode-powershell/blob/main/scripts/Install-VSCode.ps1
 
 .PARAMETER Architecture
     A validated string defining the bit version to download. Values can be either 64-bit or 32-bit.
@@ -168,7 +175,7 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc
 
 function Test-IsOsArchX64 {
     if ($PSVersionTable.PSVersion.Major -lt 6) {
-        return (Get-CimInstance -ClassName Win32_OperatingSystem).OSArchitecture -eq '64-bit'
+        return (Get-CimInstance -ClassName Win32_OperatingSystem).OSArchitecture -match '64'
     }
 
     return [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::X64
@@ -373,7 +380,7 @@ function Get-CodePlatformInformation {
         ExePath = $exePath
         Platform = $platform
         Channel = $channel
-        FileUri = "https://vscode-update.azurewebsites.net/latest/$platform/$channel"
+        FileUri = "https://update.code.visualstudio.com/latest/$platform/$channel"
         Extension = $ext
     }
 

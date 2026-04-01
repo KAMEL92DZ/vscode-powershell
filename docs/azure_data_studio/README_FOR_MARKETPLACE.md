@@ -1,20 +1,44 @@
-# PowerShell Language Support for Azure Data Studio
+# PowerShell  for Azure Data Studio
 
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/df06b9909e7442cebc1132bda0b8c0e3)](https://app.codacy.com/app/TylerLeonhardt/vscode-powershell?utm_source=github.com&utm_medium=referral&utm_content=PowerShell/vscode-powershell&utm_campaign=Badge_Grade_Dashboard)
-[![Build Status](https://powershell.visualstudio.com/vscode-powershell/_apis/build/status/PowerShell.vscode-powershell?branchName=master)](https://powershell.visualstudio.com/vscode-powershell/_build/latest?definitionId=51&branchName=master)
-[![Join the chat at https://gitter.im/PowerShell/vscode-powershell](https://badges.gitter.im/PowerShell/vscode-powershell.svg)](https://gitter.im/PowerShell/vscode-powershell?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Build Status](https://dev.azure.com/powershell/vscode-powershell/_apis/build/status/PowerShell.vscode-powershell?branchName=main)](https://dev.azure.com/powershell/vscode-powershell/_build/latest?definitionId=51&branchName=main)
+[![Version](https://vsmarketplacebadge.apphb.com/version/ms-vscode.PowerShell.svg)](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell)
+[![Installs](https://vsmarketplacebadge.apphb.com/installs-short/ms-vscode.PowerShell.svg)](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell)
+[![Join the chat on Discord](https://img.shields.io/discord/180528040881815552.svg?label=%23vscode&logo=discord&logoColor=white)](https://aka.ms/powershell-vscode-discord)
+[![Join the chat on Gitter](https://badges.gitter.im/PowerShell/vscode-powershell.svg)](https://gitter.im/PowerShell/vscode-powershell?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-This extension provides rich PowerShell language support for [Azure Data Studio](github.com/Microsoft/azuredatastudio).
+This extension provides rich PowerShell language support for [Azure Data Studio](https://github.com/Microsoft/azuredatastudio) (ADS).
 Now you can write and run PowerShell scripts using the excellent IDE-like interface
-that Azure Data Studio provides.
+that ADS provides.
 
-## Platform support
+This extension is powered by the PowerShell language server,
+[PowerShell Editor Services](https://github.com/PowerShell/PowerShellEditorServices).
+This leverages the
+[Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+where `PowerShellEditorServices` is the server and `vscode-powershell` is the client.
 
-- **Windows 7 through 10** with Windows PowerShell v3 and higher, and PowerShell Core
-- **Linux** with PowerShell Core (all PowerShell-supported distributions)
-- **macOS** with PowerShell Core
+Also included in this extension is the PowerShell ISE theme for Visual Studio Code. It is
+not activated by default, but after installing this extension either click "Set Color
+Theme" or use the [theme picker](https://code.visualstudio.com/docs/getstarted/themes) and
+select "PowerShell ISE" for a fun and familiar experience.
 
-Read the [FAQ](https://github.com/PowerShell/vscode-powershell/wiki/FAQ) for answers to common questions.
+## Platform Support
+
+The extension _should_ work anywhere ADS itself and PowerShell Core 7.2 or higher is
+[supported][]. For Windows PowerShell, only version 5.1 is supported. Please note that
+PowerShell Core 6 is end-of-life and so not supported. Our test matrix includes the
+following:
+
+- **Windows Server 2022** with Windows PowerShell 5.1 and PowerShell Core 7.2.7
+- **Windows Server 2019** with Windows PowerShell 5.1 and PowerShell Core 7.2.7
+- **macOS 11** with PowerShell Core 7.2.7
+- **Ubuntu 20.04** with PowerShell Core 7.2.7
+
+[supported]: https://docs.microsoft.com/en-us/powershell/scripting/powershell-support-lifecycle?view=powershell-7.1#supported-platforms
+
+Read the [installation instructions](https://docs.microsoft.com/en-us/powershell/scripting/components/vscode/using-vscode)
+to get more details on how to use the extension on these platforms.
+
+**Read the [troubleshooting guide](./docs/troubleshooting.md) for answers to common questions.**
 
 ## Features
 
@@ -27,19 +51,23 @@ Read the [FAQ](https://github.com/PowerShell/vscode-powershell/wiki/FAQ) for ans
 - Document and workspace symbol discovery
 - Run selected selection of PowerShell code using <kbd>F8</kbd>
 - Launch online help for the symbol under the cursor using <kbd>Ctrl</kbd>+<kbd>F1</kbd>
-- Basic interactive console support!
+- Local script debugging
+- Extension Terminal support
+- PowerShell ISE color theme
 
 ## Installing the Extension
 
 You can install the official release of the PowerShell extension by following the steps
-in the [Azure Data Studio documentation](docs.microsoft.com/en-us/sql/azure-data-studio/extensions).
+in the [Azure Data Studio documentation](https://docs.microsoft.com/en-us/sql/azure-data-studio/extensions).
 In the Extensions pane, search for "PowerShell" extension and install it there.  You will
 get notified automatically about any future extension updates!
 
-You can also install a VSIX package from our [Releases page](https://github.com/PowerShell/vscode-powershell/releases) and install it through the command line:
+You can also install a VSIX package from our [releases page](https://github.com/PowerShell/vscode-powershell/releases) by following the
+[Install from a VSIX](https://code.visualstudio.com/docs/editor/extension-gallery#_install-from-a-vsix)
+instructions. The easiest way is through the command line:
 
 ```powershell
-azuredatastudio --install-extension PowerShell-<version>.vsix
+azuredatastudio --install-extension powershell-<version>.vsix
 ```
 
 ## Reporting Problems
@@ -48,8 +76,9 @@ If you experience any problems with the PowerShell Extension, see
 [the troubleshooting docs](./docs/troubleshooting.md) for information
 on diagnosing and reporting issues.
 
-#### Security Note
-For any security issues, please see [here](./docs/troubleshooting.md#note-on-security).
+## Security Note
+
+For any security issues, please see [here](./SECURITY.md).
 
 ## Example Scripts
 
@@ -61,23 +90,20 @@ how to use them.
 This folder can be found at the following path:
 
 ```powershell
-$HOME/.azuredatastudio/extensions/ms-vscode.PowerShell-<version>/examples
+$HOME/.azuredatastudio/extensions/ms-vscode.powershell-<version>/examples
 ```
 
-or if you're using the preview version of the extension
-
- ```powershell
-$HOME/.azuredatastudio/extensions/ms-vscode.powershell-preview-<version>/examples
-```
-
-To open/view the extension's examples in Azure Data Studio, run the following from your PowerShell command prompt:
+To open/view the extension's examples in Azure Data Studio, run the following from your
+PowerShell session:
 
 ```powershell
-azuredatastudio (Get-ChildItem $Home\.azuredatastudio\extensions\ms-vscode.PowerShell-*\examples)[-1]
+azuredatastudio (Get-ChildItem $HOME/.azuredatastudio/extensions/ms-vscode.powershell-*/examples)[-1]
 ```
 
 ### SQL PowerShell Examples
-In order to use these examples (below), you need to install the SqlServer module from the [PowerShell Gallery](https://www.powershellgallery.com/packages/SqlServer).
+
+In order to use these examples (below), you need to install the SqlServer module from the
+[PowerShell Gallery](https://www.powershellgallery.com/packages/SqlServer).
 
 ```powershell
 Install-Module -Name SqlServer
@@ -85,7 +111,9 @@ Install-Module -Name SqlServer
 
 > NOTE: With version `21.1.18102` and up, the `SqlServer` module supports [PowerShell Core](https://github.com/PowerShell/PowerShell) 6.2 and up, in addion to Windows PowerShell.
 
-In this example, we use the `Get-SqlInstance` cmdlet to Get the Server SMO objects for ServerA & ServerB.  The default output for this command will include the Instance name, version, Service Pack, & CU Update Level of the instances.
+In this example, we use the `Get-SqlInstance` cmdlet to Get the Server SMO objects for
+ServerA and ServerB. The default output for this command will include the Instance name,
+version, Service Pack, and CU Update Level of the instances.
 
 ```powershell
 Get-SqlInstance -ServerInstance ServerA, ServerB
@@ -93,7 +121,7 @@ Get-SqlInstance -ServerInstance ServerA, ServerB
 
 Here is a sample of what that output will look like:
 
-```
+```powershell
 Instance Name             Version    ProductLevel UpdateLevel  HostPlatform HostDistribution
 -------------             -------    ------------ -----------  ------------ ----------------
 ServerA                   13.0.5233  SP2          CU4          Windows      Windows Server 2016 Datacenter
@@ -112,12 +140,12 @@ FOREACH {
 
 Here is a sample of what that output will look like:
 
-```
+```powershell
 Name                 Status           Size     Space  Recovery Compat. Owner
                                             Available  Model     Level
 ----                 ------           ---- ---------- -------- ------- -----
 AdventureWorks2017   Normal      336.00 MB   57.01 MB Simple       140 sa
-master               Normal        6.00 MB  368.00 KB Simple       140 sa
+main               Normal        6.00 MB  368.00 KB Simple       140 sa
 model                Normal       16.00 MB    5.53 MB Full         140 sa
 msdb                 Normal       48.44 MB    1.70 MB Simple       140 sa
 PBIRS                Normal      144.00 MB   55.95 MB Full         140 sa
@@ -152,9 +180,16 @@ on how to contribute to this extension!
 
 ## Maintainers
 
-- [Keith Hill](https://github.com/rkeithhill) - [@r_keith_hill](http://twitter.com/r_keith_hill)
-- [Tyler Leonhardt](https://github.com/tylerl0706) - [@TylerLeonhardt](http://twitter.com/tylerleonhardt)
-- [Rob Holt](https://github.com/rjmholt)
+- Patrick Meinecke - [@SeeminglyScience](https://github.com/SeeminglyScience)
+- Andy Jordan - [@andschwa](https://github.com/andschwa)
+- Sydney Smith - [@SydneyhSmith](https://github.com/SydneyhSmith)
+
+### Emeriti
+
+- Keith Hill - [@rkeithhill](https://github.com/rkeithhill)
+- Rob Holt - [@rjmholt](https://github.com/rjmholt)
+- Tyler Leonhardt - [@TylerLeonhardt](https://github.com/TylerLeonhardt)
+- David Wilson - [@daviwil](https://github.com/daviwil)
 
 ## License
 
@@ -170,4 +205,4 @@ For more information see the [Code of Conduct FAQ][conduct-FAQ] or contact [open
 [conduct-code]: http://opensource.microsoft.com/codeofconduct/
 [conduct-FAQ]: http://opensource.microsoft.com/codeofconduct/faq/
 [conduct-email]: mailto:opencode@microsoft.com
-[conduct-md]: https://github.com/PowerShell/vscode-powershell/blob/master/CODE_OF_CONDUCT.md
+[conduct-md]: https://github.com/PowerShell/vscode-powershell/blob/main/CODE_OF_CONDUCT.md

@@ -1,28 +1,47 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-"use strict";
-
-import fs = require("fs");
 import os = require("os");
 import path = require("path");
+import vscode = require("vscode");
 
-export let PowerShellLanguageId = "powershell";
+export const PowerShellLanguageId = "powershell";
 
-export function ensurePathExists(targetPath: string) {
-    // Ensure that the path exists
-    try {
-        fs.mkdirSync(targetPath);
-    } catch (e) {
-        // If the exception isn't to indicate that the folder exists already, rethrow it.
-        if (e.code !== "EEXIST") {
-            throw e;
-        }
-    }
+// Path to the shell integration script in the VS Code installation.
+// See commit 21114288b if it moves again.
+export const ShellIntegrationScript = path.join(
+    vscode.env.appRoot,
+    "out",
+    "vs",
+    "workbench",
+    "contrib",
+    "terminal",
+    "common",
+    "scripts",
+    "shellIntegration.ps1",
+);
+
+export function escapeSingleQuotes(p: string): string {
+    return p.replace(new RegExp("'", "g"), "''");
 }
 
-export function getPipePath(pipeName: string) {
+export function stripQuotePair(p: string | undefined): string | undefined {
+    if (p === undefined) {
+        return p;
+    }
+
+    // Remove matching surrounding quotes from p (without regex)
+    if (
+        (p.startsWith("'") && p.endsWith("'")) ||
+        (p.startsWith('"') && p.endsWith('"'))
+    ) {
+        return p.slice(1, -1);
+    }
+
+    return p;
+}
+
+export function getPipePath(pipeName: string): string {
     if (os.platform() === "win32") {
         return "\\\\.\\pipe\\" + pipeName;
     } else {
@@ -32,90 +51,62 @@ export function getPipePath(pipeName: string) {
     }
 }
 
-export interface IEditorServicesSessionDetails {
-    status: string;
-    reason: string;
-    detail: string;
-    powerShellVersion: string;
-    channel: string;
-    languageServicePort: number;
-    debugServicePort: number;
-    languageServicePipeName: string;
-    debugServicePipeName: string;
-}
-
-export type IReadSessionFileCallback = (details: IEditorServicesSessionDetails) => void;
-export type IWaitForSessionFileCallback = (details: IEditorServicesSessionDetails, error: string) => void;
-
-const sessionsFolder = path.resolve(__dirname, "..", "..", "sessions/");
-const sessionFilePathPrefix = path.resolve(sessionsFolder, "PSES-VSCode-" + process.env.VSCODE_PID);
-
-// Create the sessions path if it doesn't exist already
-ensurePathExists(sessionsFolder);
-
-export function getSessionFilePath(uniqueId: number) {
-    return `${sessionFilePathPrefix}-${uniqueId}`;
-}
-
-export function getDebugSessionFilePath() {
-    return `${sessionFilePathPrefix}-Debug`;
-}
-
-export function writeSessionFile(sessionFilePath: string, sessionDetails: IEditorServicesSessionDetails) {
-    ensurePathExists(sessionsFolder);
-
-    const writeStream = fs.createWriteStream(sessionFilePath);
-    writeStream.write(JSON.stringify(sessionDetails));
-    writeStream.close();
-}
-
-export function waitForSessionFile(sessionFilePath: string, callback: IWaitForSessionFileCallback) {
-
-    function innerTryFunc(remainingTries: number, delayMilliseconds: number) {
-        if (remainingTries === 0) {
-            callback(undefined, "Timed out waiting for session file to appear.");
-        } else if (!checkIfFileExists(sessionFilePath)) {
-            // Wait a bit and try again
-            setTimeout(
-                () => { innerTryFunc(remainingTries - 1, delayMilliseconds); },
-                delayMilliseconds);
-        } else {
-            // Session file was found, load and return it
-            callback(readSessionFile(sessionFilePath), undefined);
-        }
+// Check that the file or directory exists in an asynchronous manner that relies
+// solely on the VS Code API, not Node's fs library, ignoring symlinks.
+async function checkIfFileOrDirectoryExists(
+    targetPath: string | vscode.Uri,
+    type: vscode.FileType,
+): Promise<boolean> {
+    if (targetPath === "") {
+        return false;
     }
-
-    // Try once every 2 seconds, 60 times - making two full minutes
-    innerTryFunc(60, 2000);
-}
-
-export function readSessionFile(sessionFilePath: string): IEditorServicesSessionDetails {
-    const fileContents = fs.readFileSync(sessionFilePath, "utf-8");
-    return JSON.parse(fileContents);
-}
-
-export function deleteSessionFile(sessionFilePath: string) {
     try {
-        fs.unlinkSync(sessionFilePath);
-    } catch (e) {
-        // TODO: Be more specific about what we're catching
-    }
-}
-
-export function checkIfFileExists(filePath: string): boolean {
-    try {
-        fs.accessSync(filePath, fs.constants.R_OK);
-        return true;
-    } catch (e) {
+        const stat: vscode.FileStat = await vscode.workspace.fs.stat(
+            targetPath instanceof vscode.Uri
+                ? targetPath
+                : vscode.Uri.file(targetPath),
+        );
+        return (stat.type & type) !== 0;
+    } catch {
         return false;
     }
 }
 
-export function getTimestampString() {
+export async function checkIfFileExists(
+    filePath: string | vscode.Uri,
+): Promise<boolean> {
+    return await checkIfFileOrDirectoryExists(filePath, vscode.FileType.File);
+}
+
+export async function checkIfDirectoryExists(
+    directoryPath: string | vscode.Uri,
+): Promise<boolean> {
+    return await checkIfFileOrDirectoryExists(
+        directoryPath,
+        vscode.FileType.Directory,
+    );
+}
+
+export async function readDirectory(
+    directoryPath: string | vscode.Uri,
+): Promise<string[]> {
+    const items = await vscode.workspace.fs.readDirectory(
+        directoryPath instanceof vscode.Uri
+            ? directoryPath
+            : vscode.Uri.file(directoryPath),
+    );
+    return items.map(([name, _type]) => name);
+}
+
+export function getTimestampString(): string {
     const time = new Date();
     return `[${time.getHours()}:${time.getMinutes()}:${time.getSeconds()}]`;
 }
 
-export function isWindowsOS(): boolean {
-    return os.platform() === "win32";
+export function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export const isMacOS: boolean = process.platform === "darwin";
+export const isWindows: boolean = process.platform === "win32";
+export const isLinux: boolean = !isMacOS && !isWindows;

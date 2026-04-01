@@ -1,76 +1,84 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-import { Disposable, EndOfLine, Position, Range, SnippetString,
-    TextDocument, TextDocumentChangeEvent, window, workspace } from "vscode";
-import { LanguageClient, RequestType } from "vscode-languageclient";
-import { IFeature } from "../feature";
-import { Logger } from "../logging";
-import Settings = require("../settings");
+import {
+    Disposable,
+    EndOfLine,
+    Range,
+    SnippetString,
+    type TextDocument,
+    type TextDocumentChangeEvent,
+    window,
+    workspace,
+} from "vscode";
+import { RequestType } from "vscode-languageclient";
+import { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClientConsumer } from "../languageClientConsumer";
+import { CommentType, getSettings, Settings } from "../settings";
 
-export const CommentHelpRequestType =
-    new RequestType<any, any, void, void>("powerShell/getCommentHelp");
+interface ICommentHelpRequestArguments {}
 
-interface ICommentHelpRequestParams {
-    documentUri: string;
-    triggerPosition: Position;
-    blockComment: boolean;
-}
-
-interface ICommentHelpRequestResult {
+interface ICommentHelpRequestResponse {
     content: string[];
 }
 
-enum SearchState { Searching, Locked, Found }
+export const CommentHelpRequestType = new RequestType<
+    ICommentHelpRequestArguments,
+    ICommentHelpRequestResponse,
+    void
+>("powerShell/getCommentHelp");
 
-export class HelpCompletionFeature implements IFeature {
-    private helpCompletionProvider: HelpCompletionProvider;
-    private languageClient: LanguageClient;
-    private disposable: Disposable;
-    private settings: Settings.ISettings;
+enum SearchState {
+    Searching,
+    Locked,
+    Found,
+}
 
-    constructor(private log: Logger) {
-        this.settings = Settings.load();
+export class HelpCompletionFeature extends LanguageClientConsumer {
+    private helpCompletionProvider: HelpCompletionProvider | undefined;
+    private disposable: Disposable | undefined;
+    private settings: Settings;
 
-        if (this.settings.helpCompletion !== Settings.HelpCompletion.Disabled) {
+    constructor() {
+        super();
+        this.settings = getSettings();
+
+        if (this.settings.helpCompletion !== CommentType.Disabled) {
             this.helpCompletionProvider = new HelpCompletionProvider();
-            const subscriptions = [];
-            workspace.onDidChangeTextDocument(this.onEvent, this, subscriptions);
-            this.disposable = Disposable.from(...subscriptions);
+            this.disposable = workspace.onDidChangeTextDocument(async (e) => {
+                await this.onEvent(e);
+            });
         }
     }
 
-    public dispose() {
-        if (this.disposable) {
-            this.disposable.dispose();
-        }
+    public dispose(): void {
+        this.disposable?.dispose();
     }
 
-    public setLanguageClient(languageClient: LanguageClient) {
-        this.languageClient = languageClient;
-        if (this.helpCompletionProvider) {
-            this.helpCompletionProvider.languageClient = languageClient;
-        }
+    public override onLanguageClientSet(languageClient: LanguageClient): void {
+        // Our helper class isn't in the session's list of language client
+        // consumers since we optionally create it, so we have to set it
+        // manually.
+        this.helpCompletionProvider?.onLanguageClientSet(languageClient);
     }
 
     public async onEvent(changeEvent: TextDocumentChangeEvent): Promise<void> {
-        if (!(changeEvent && changeEvent.contentChanges)) {
-            this.log.writeWarning(`<${HelpCompletionFeature.name}>: ` +
-                `Bad TextDocumentChangeEvent message: ${JSON.stringify(changeEvent)}`);
+        // If it's not a PowerShell script, we don't care about it.
+        if (changeEvent.document.languageId !== "powershell") {
             return;
         }
 
         if (changeEvent.contentChanges.length > 0) {
-            this.helpCompletionProvider.updateState(
+            this.helpCompletionProvider?.updateState(
                 changeEvent.document,
                 changeEvent.contentChanges[0].text,
-                changeEvent.contentChanges[0].range);
+                changeEvent.contentChanges[0].range,
+            );
 
-            // todo raise an event when trigger is found, and attach complete() to the event.
-            if (this.helpCompletionProvider.triggerFound) {
+            // TODO: Raise an event when trigger is found, and attach complete() to the event.
+            if (this.helpCompletionProvider?.triggerFound) {
                 await this.helpCompletionProvider.complete();
-                await this.helpCompletionProvider.reset();
+                this.helpCompletionProvider.reset();
             }
         }
     }
@@ -78,7 +86,7 @@ export class HelpCompletionFeature implements IFeature {
 
 class TriggerFinder {
     private state: SearchState;
-    private document: TextDocument;
+    private document: TextDocument | undefined;
     private count: number;
 
     constructor(private triggerCharacters: string) {
@@ -93,7 +101,11 @@ class TriggerFinder {
     public updateState(document: TextDocument, changeText: string): void {
         switch (this.state) {
             case SearchState.Searching:
-                if (changeText.length === 1 && changeText[0] === this.triggerCharacters[this.count]) {
+                if (
+                    changeText.length === 1 &&
+                    // eslint-disable-next-line @typescript-eslint/prefer-string-starts-ends-with
+                    changeText[0] === this.triggerCharacters[this.count]
+                ) {
                     this.state = SearchState.Locked;
                     this.document = document;
                     this.count++;
@@ -101,9 +113,12 @@ class TriggerFinder {
                 break;
 
             case SearchState.Locked:
-                if (document === this.document &&
-                        changeText.length === 1 &&
-                        changeText[0] === this.triggerCharacters[this.count]) {
+                if (
+                    document === this.document &&
+                    changeText.length === 1 &&
+                    // eslint-disable-next-line @typescript-eslint/prefer-string-starts-ends-with
+                    changeText[0] === this.triggerCharacters[this.count]
+                ) {
                     this.count++;
                     if (this.count === this.triggerCharacters.length) {
                         this.state = SearchState.Found;
@@ -125,30 +140,33 @@ class TriggerFinder {
     }
 }
 
-class HelpCompletionProvider {
+class HelpCompletionProvider extends LanguageClientConsumer {
     private triggerFinderHelpComment: TriggerFinder;
-    private lastChangeText: string;
-    private lastChangeRange: Range;
-    private lastDocument: TextDocument;
-    private langClient: LanguageClient;
-    private settings: Settings.ISettings;
+    private lastChangeRange: Range | undefined;
+    private lastDocument: TextDocument | undefined;
+    private settings: Settings;
 
     constructor() {
+        super();
         this.triggerFinderHelpComment = new TriggerFinder("##");
-        this.settings = Settings.load();
+        this.settings = getSettings();
     }
 
     public get triggerFound(): boolean {
         return this.triggerFinderHelpComment.found;
     }
 
-    public set languageClient(value: LanguageClient) {
-        this.langClient = value;
-    }
+    public override onLanguageClientSet(
+        _languageClient: LanguageClient,
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+    ): void {}
 
-    public updateState(document: TextDocument, changeText: string, changeRange: Range): void {
+    public updateState(
+        document: TextDocument,
+        changeText: string,
+        changeRange: Range,
+    ): void {
         this.lastDocument = document;
-        this.lastChangeText = changeText;
         this.lastChangeRange = changeRange;
         this.triggerFinderHelpComment.updateState(document, changeText);
     }
@@ -158,36 +176,45 @@ class HelpCompletionProvider {
     }
 
     public async complete(): Promise<void> {
-        if (this.langClient === undefined) {
+        if (
+            this.lastChangeRange === undefined ||
+            this.lastDocument === undefined
+        ) {
             return;
         }
 
         const triggerStartPos = this.lastChangeRange.start;
         const doc = this.lastDocument;
 
-        const result = await this.langClient.sendRequest(CommentHelpRequestType, {
+        const client = await LanguageClientConsumer.getLanguageClient();
+        const result = await client.sendRequest(CommentHelpRequestType, {
             documentUri: doc.uri.toString(),
             triggerPosition: triggerStartPos,
-            blockComment: this.settings.helpCompletion === Settings.HelpCompletion.BlockComment,
+            blockComment:
+                this.settings.helpCompletion === CommentType.BlockComment,
         });
 
-        if (!(result && result.content)) {
+        if (result.content.length === 0) {
             return;
         }
 
-        const replaceRange = new Range(triggerStartPos.translate(0, -1), triggerStartPos.translate(0, 1));
+        const replaceRange = new Range(
+            triggerStartPos.translate(0, -1),
+            triggerStartPos.translate(0, 1),
+        );
 
-        // TODO add indentation level to the help content
+        // TODO: add indentation level to the help content
         // Trim leading whitespace (used by the rule for indentation) as VSCode takes care of the indentation.
         // Trim the last empty line and join the strings.
         const lines: string[] = result.content;
-        const text = lines
-            .map((x) => (x as any).trimLeft())
-            .join(this.getEOL(doc.eol));
+        const text = lines.map((x) => x.trimStart()).join(this.getEOL(doc.eol));
 
         const snippetString = new SnippetString(text);
 
-        window.activeTextEditor.insertSnippet(snippetString, replaceRange);
+        await window.activeTextEditor?.insertSnippet(
+            snippetString,
+            replaceRange,
+        );
     }
 
     private getEOL(eol: EndOfLine): string {

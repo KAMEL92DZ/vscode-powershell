@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
 [CmdletBinding(DefaultParameterSetName = "Build")]
@@ -103,7 +103,7 @@ if ($Bootstrap) {
     } else {
         $missingTools | ForEach-Object {$string += "* $_`n"}
         $string += "`nAll instructions for installing these tools can be found on VSCode PowerShell's Github:`n" `
-            + "https://github.com/PowerShell/vscode-powershell/blob/master/docs/development.md"
+            + "https://github.com/PowerShell/vscode-powershell/blob/main/docs/development.md"
     }
     Write-Host "`n$string`n"
 } elseif(hasMissingTools) {

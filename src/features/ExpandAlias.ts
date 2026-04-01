@@ -1,57 +1,80 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 import vscode = require("vscode");
-import Window = vscode.window;
-import { LanguageClient, NotificationType, RequestType } from "vscode-languageclient";
-import { IFeature } from "../feature";
-import { Logger } from "../logging";
+import { RequestType } from "vscode-languageclient";
+import type { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClientConsumer } from "../languageClientConsumer";
 
-export const ExpandAliasRequestType = new RequestType<any, any, void, void>("powerShell/expandAlias");
+interface IExpandAliasRequestArguments {}
 
-export class ExpandAliasFeature implements IFeature {
+interface IExpandAliasRequestResponse {
+    text: string;
+}
+
+export const ExpandAliasRequestType = new RequestType<
+    IExpandAliasRequestArguments,
+    IExpandAliasRequestResponse,
+    void
+>("powerShell/expandAlias");
+
+export class ExpandAliasFeature extends LanguageClientConsumer {
     private command: vscode.Disposable;
-    private languageClient: LanguageClient;
 
-    constructor(private log: Logger) {
-        this.command = vscode.commands.registerCommand("PowerShell.ExpandAlias", () => {
-            if (this.languageClient === undefined) {
-                this.log.writeAndShowError(`<${ExpandAliasFeature.name}>: ` +
-                    "Unable to instantiate; language client undefined.");
-                return;
-            }
+    constructor() {
+        super();
+        this.command = vscode.commands.registerCommand(
+            "PowerShell.ExpandAlias",
+            async () => {
+                const editor = vscode.window.activeTextEditor;
+                if (editor === undefined) {
+                    return;
+                }
 
-            const editor = Window.activeTextEditor;
-            const document = editor.document;
-            const selection = editor.selection;
-            const sls = selection.start;
-            const sle = selection.end;
+                const document = editor.document;
+                const selection = editor.selection;
+                const sls = selection.start;
+                const sle = selection.end;
 
-            let text;
-            let range;
+                let text: string;
+                let range: vscode.Range | vscode.Position;
 
-            if ((sls.character === sle.character) && (sls.line === sle.line)) {
-                text = document.getText();
-                range = new vscode.Range(0, 0, document.lineCount, text.length);
-            } else {
-                text = document.getText(selection);
-                range = new vscode.Range(sls.line, sls.character, sle.line, sle.character);
-            }
+                if (sls.character === sle.character && sls.line === sle.line) {
+                    text = document.getText();
+                    range = new vscode.Range(
+                        0,
+                        0,
+                        document.lineCount,
+                        text.length,
+                    );
+                } else {
+                    text = document.getText(selection);
+                    range = new vscode.Range(
+                        sls.line,
+                        sls.character,
+                        sle.line,
+                        sle.character,
+                    );
+                }
 
-            this.languageClient.sendRequest(ExpandAliasRequestType, { text }).then((result) => {
-                editor.edit((editBuilder) => {
+                const client = await LanguageClientConsumer.getLanguageClient();
+                const result = await client.sendRequest(
+                    ExpandAliasRequestType,
+                    { text },
+                );
+                await editor.edit((editBuilder) => {
                     editBuilder.replace(range, result.text);
                 });
-            });
-        });
+            },
+        );
     }
 
-    public dispose() {
+    public override onLanguageClientSet(
+        _languageClient: LanguageClient,
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+    ): void {}
+
+    public dispose(): void {
         this.command.dispose();
-    }
-
-    public setLanguageClient(languageclient: LanguageClient) {
-        this.languageClient = languageclient;
     }
 }

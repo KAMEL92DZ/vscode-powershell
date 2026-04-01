@@ -1,58 +1,48 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 import vscode = require("vscode");
-import { LanguageClient } from "vscode-languageclient";
-import Window = vscode.window;
-import { IFeature } from "../feature";
-import { ILogger } from "../logging";
+import type { ILogger } from "../logging";
 
-export class CodeActionsFeature implements IFeature {
-    private applyEditsCommand: vscode.Disposable;
-    private showDocumentationCommand: vscode.Disposable;
-    private languageClient: LanguageClient;
+export class CodeActionsFeature implements vscode.Disposable {
+    private command: vscode.Disposable;
 
     constructor(private log: ILogger) {
-        this.applyEditsCommand = vscode.commands.registerCommand("PowerShell.ApplyCodeActionEdits", (edit: any) => {
-            Window.activeTextEditor.edit((editBuilder) => {
-                editBuilder.replace(
-                    new vscode.Range(
-                        edit.StartLineNumber - 1,
-                        edit.StartColumnNumber - 1,
-                        edit.EndLineNumber - 1,
-                        edit.EndColumnNumber - 1),
-                    edit.Text);
-            });
-        });
-
-        this.showDocumentationCommand =
-            vscode.commands.registerCommand("PowerShell.ShowCodeActionDocumentation", (ruleName: any) => {
-                this.showRuleDocumentation(ruleName);
-            });
+        // NOTE: While not exposed to the user via package.json, this is
+        // required as the server's code action sends across a command name.
+        //
+        // TODO: In the far future with LSP 3.19 the server can just set a URL
+        // and this can go away. See https://github.com/microsoft/language-server-protocol/issues/1548
+        this.command = vscode.commands.registerCommand(
+            "PowerShell.ShowCodeActionDocumentation",
+            async (ruleName: string) => {
+                await this.showRuleDocumentation(ruleName);
+            },
+        );
     }
 
-    public dispose() {
-        this.applyEditsCommand.dispose();
-        this.showDocumentationCommand.dispose();
+    public dispose(): void {
+        this.command.dispose();
     }
 
-    public setLanguageClient(languageclient: LanguageClient) {
-        this.languageClient = languageclient;
-    }
-
-    public showRuleDocumentation(ruleId: string) {
-        const pssaDocBaseURL = "https://github.com/PowerShell/PSScriptAnalyzer/blob/master/RuleDocumentation";
+    private async showRuleDocumentation(ruleId: string): Promise<void> {
+        const pssaDocBaseURL =
+            "https://docs.microsoft.com/powershell/utility-modules/psscriptanalyzer/rules/";
 
         if (!ruleId) {
-            this.log.writeWarning("Cannot show documentation for code action, no ruleName was supplied.");
+            this.log.writeWarning(
+                "Cannot show documentation for code action, no ruleName was supplied.",
+            );
             return;
         }
 
         if (ruleId.startsWith("PS")) {
-            ruleId = ruleId.substr(2);
+            ruleId = ruleId.substring(2);
         }
 
-        vscode.commands.executeCommand("vscode.open", vscode.Uri.parse(pssaDocBaseURL + `/${ruleId}.md`));
+        await vscode.commands.executeCommand(
+            "vscode.open",
+            vscode.Uri.parse(pssaDocBaseURL + ruleId),
+        );
     }
 }

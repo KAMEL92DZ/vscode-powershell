@@ -1,31 +1,34 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 import path = require("path");
+import utils = require("../utils");
 import vscode = require("vscode");
-import { LanguageClient } from "vscode-languageclient";
-import { IFeature } from "../feature";
 
-export class ExamplesFeature implements IFeature {
+export class ExamplesFeature implements vscode.Disposable {
     private command: vscode.Disposable;
-    private examplesPath: string;
+    private examplesPath: vscode.Uri;
 
     constructor() {
-        this.examplesPath = path.resolve(__dirname, "../../../examples");
-        this.command = vscode.commands.registerCommand("PowerShell.OpenExamplesFolder", () => {
-            vscode.commands.executeCommand(
-                "vscode.openFolder",
-                vscode.Uri.file(this.examplesPath),
-                true);
-        });
+        this.examplesPath = vscode.Uri.file(
+            path.resolve(__dirname, "../examples"),
+        );
+        this.command = vscode.commands.registerCommand(
+            "PowerShell.OpenExamplesFolder",
+            async () => {
+                await vscode.commands.executeCommand(
+                    "vscode.openFolder",
+                    this.examplesPath,
+                    true,
+                );
+                // Return existence of the path for testing. The `vscode.openFolder`
+                // command should do this, but doesn't (yet).
+                return utils.checkIfFileExists(this.examplesPath);
+            },
+        );
     }
 
-    public setLanguageClient(languageclient: LanguageClient) {
-        // Eliminate tslint warning
-    }
-
-    public dispose() {
+    public dispose(): void {
         this.command.dispose();
     }
 }

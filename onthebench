@@ -1,0 +1,305 @@
+
+Connect-MgGraph -Scopes "TeamworkTag.ReadWrite","Group.Read.All","User.Read.All"
+
+# ========================
+# PARAMETRES
+# ========================
+$XlsxPath = "C:\Users\kamel.hadid\Downloads\France_Availabilities.xlsx"
+$CsvPath = "C:\Users\kamel.hadid\Downloads\France_Availabilities.csv"
+$TeamId = "2ffc8091-9a3e-4f1a-adca-d027f5aa535a"
+
+# Options utilisateurs (à ajuster si besoin)
+$NameColumn = "Name"           # colonne du nom des utilisateurs
+$Threshold = 0.5                # seuil (0.5 = 50%)
+$TagName = "Disponibles-semaine" # nom du tag Teams à créer
+
+# ========================
+# CONNEXION GRAPH
+# ========================
+
+
+# ========================
+# LECTURE XLSX
+# ========================
+if (-not (Test-Path $XlsxPath)) {
+    Write-Error "Fichier non trouvé : $XlsxPath"
+    exit 1
+}
+Import-Module ImportExcel -ErrorAction Stop | Out-Null
+$data = Import-Excel -Path $XlsxPath
+Write-Host "✅ XLSX chargé : $($data.Count) lignes"
+
+# ========================
+# EXPORT EN CSV
+# ========================
+$data | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
+Write-Host "✅ CSV exporté : $CsvPath"
+
+# ========================
+# EXTRACTION COLONNE SEMAINE (FORMAT DATE)
+# ========================
+$dateColumns = $data[0].PSObject.Properties.Name | 
+    Where-Object { $_ -match '^\d{1,2}-[A-Za-z]+-\d{2}$' }
+
+if ($dateColumns.Count -eq 0) {
+    Write-Error "Aucune colonne avec format date (ex: 01-Avril-26) trouvée"
+    exit 1
+}
+
+# Sélectionner la colonne pour la semaine en cours
+$currentDate = Get-Date
+$mondayOfWeek = $currentDate.AddDays( - ( [int]$currentDate.DayOfWeek - 1 ) )
+$sundayOfWeek = $mondayOfWeek.AddDays(6)
+$selectedColumn = $null
+
+$invariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
+$formats = @("d-MMM-yy", "d-MMMM-yy", "d-MMM-yyyy", "d-MMMM-yyyy")
+
+$parsedDates = @{}
+foreach ($col in $dateColumns) {
+    foreach ($fmt in $formats) {
+        try {
+            $colDate = [DateTime]::ParseExact($col, $fmt, $invariantCulture)
+            $parsedDates[$col] = $colDate
+            break
+        } catch {
+            # Essayer le format suivant
+        }
+    }
+}
+
+if ($parsedDates.Count -eq 0) {
+    Write-Error "Aucune colonne date parseable trouvée"
+    exit 1
+}
+
+# Chercher une colonne dans la semaine en cours (lundi-dimanche)
+$selectedColumn = $parsedDates.GetEnumerator() |
+    Where-Object { $_.Value -ge $mondayOfWeek -and $_.Value -le $sundayOfWeek } |
+    Sort-Object Value |
+    Select-Object -ExpandProperty Name -First 1
+
+if (-not $selectedColumn) {
+    # Pas de semaine exacte ? on sélectionne la colonne la plus proche (à partir de la date courante)
+    $selectedColumn = $parsedDates.GetEnumerator() |
+        Sort-Object @{Expression={ [math]::Abs((($_.Value - $currentDate).TotalDays)) }} |
+        Select-Object -ExpandProperty Name -First 1
+    Write-Host "⚠️  Aucun colonne exact pour la semaine en cours, colonne la plus proche choisie : $selectedColumn"
+}
+
+$weekColumn = $selectedColumn
+Write-Host "📅 Colonne utilisée : $weekColumn"
+
+$weekColumn = $selectedColumn
+Write-Host "📅 Colonne utilisée : $weekColumn"
+
+# ========================
+# ETAPE 1 : RECUPERER LES ELIGIBLES (>50%)
+# ========================
+Write-Host ""
+Write-Host "════════════════════════════════════════"
+Write-Host "ETAPE 1 : Récupération des utilisateurs >50%"
+Write-Host "════════════════════════════════════════"
+
+$userCache = @{}
+$eligibleUsers = @()
+$memberIds = @()
+
+foreach ($row in $data) {
+    $displayName = $row.$NameColumn
+    $availabilityStr = $row.$weekColumn
+    
+    if (-not $displayName -or [string]::IsNullOrWhiteSpace($availabilityStr)) {
+        continue
+    }
+    
+    # Conversion du pourcentage
+    try {
+        $availability = [float]$availabilityStr
+    }
+    catch {
+        continue
+    }
+    
+    # Si >50%, on récupère l'utilisateur
+    if ($availability -gt $Threshold) {
+        # Récupère l'utilisateur (avec cache)
+        if (-not $userCache.ContainsKey($displayName)) {
+            try {
+                $user = Get-MgUser -Filter "displayName eq '$displayName'" -ErrorAction SilentlyContinue
+                $userCache[$displayName] = $user
+            }
+            catch {
+                $userCache[$displayName] = $null
+            }
+        }
+        
+        $user = $userCache[$displayName]
+        if ($user) {
+            $eligibleUsers += @{
+                Name = $displayName
+                UserId = $user.Id
+                Mail = $user.Mail
+                Availability = $availability
+            }
+            $memberIds += $user.Id
+            Write-Host "✅ Eligible : $displayName - $($user.Mail) ($([math]::Round($availability*100))%)"
+        }
+    }
+}
+
+Write-Host ""
+Write-Host "📊 Total éligibles : $($eligibleUsers.Count)"
+
+if ($eligibleUsers.Count -eq 0) {
+    Write-Error "Aucun utilisateur éligible trouvé"
+    exit 1
+}
+
+# ========================
+# ETAPE 2 : SUPPRIMER LE TAG EXISTANT (SI PRESENT)
+# ========================
+Write-Host ""
+Write-Host "════════════════════════════════════════"
+Write-Host "ETAPE 2 : Vérification et suppression du tag existant"
+Write-Host "════════════════════════════════════════"
+
+try {
+    $tags = Get-MgTeamTag -TeamId $TeamId -ErrorAction Stop
+    $existingTag = $tags | Where-Object { $_.displayName -eq $TagName }
+    
+    if ($existingTag) {
+        Write-Host "⚠️  Tag '$TagName' existe déjà"
+        Write-Host "🗑️  Suppression du tag..."
+        
+        try {
+            Remove-MgTeamTag -TeamId $TeamId -TeamworkTagId $existingTag.Id -ErrorAction Stop
+            Write-Host "✅ Tag supprimé avec succès"
+            Start-Sleep -Seconds 2
+        }
+        catch {
+            Write-Warning "❌ Erreur suppression ancien tag : $_"
+        }
+    }
+    else {
+        Write-Host "✅ Aucun tag existant"
+    }
+}
+catch {
+    Write-Host "⚠️  Erreur vérification tags : $_"
+}
+
+# ========================
+# ETAPE 3 : CREER LE TAG AVEC LES MEMBRES
+# ========================
+Write-Host ""
+Write-Host "════════════════════════════════════════"
+Write-Host "ETAPE 3 : Création du tag avec les membres"
+Write-Host "════════════════════════════════════════"
+
+try {
+    Write-Host "🔨 Création du tag '$TagName' avec $($eligibleUsers.Count) membres..."
+
+    $seedMembers = $eligibleUsers | Select-Object -First 25
+    $remainingMembers = $eligibleUsers | Select-Object -Skip 25
+
+    $tagMembers = $seedMembers | ForEach-Object {
+        @{ "userId" = $_.UserId }
+    }
+
+    if ($tagMembers.Count -eq 0) {
+        Write-Error "Aucun utilisateur eligible pour initialiser le tag"
+        exit 1
+    }
+
+    # Création du tag avec les 25 premiers membres (requiert members non null)
+    $tagMembers = $seedMembers | ForEach-Object {
+        @{ "userId" = $_.UserId; "displayName" = $_.Name }
+    }
+
+    $tagPayload = @{
+        displayName = $TagName
+        description = "Tag créé par script disponibilité"
+        members = $tagMembers
+    }
+
+    $newTag = Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/teams/$TeamId/tags" -Body ($tagPayload | ConvertTo-Json -Depth 5) -ContentType "application/json" -ErrorAction Stop
+    $tagId = $newTag.id
+    Write-Host "✅ Tag créé avec succès : $TagName"
+    Write-Host "   ID : $tagId"
+    Write-Host "   Membres initiaux (création) : $($tagMembers.Count)"
+
+    # Aucun ajout initial nécessaire si seedMembers <= 25 (c'est déjà grafté dans création). Si besoin, on peut réévaluer.        try {
+            New-MgTeamTagMember -TeamId $TeamId -TeamworkTagId $tagId -UserId $user.UserId -DisplayName $user.Name -ErrorAction Stop
+            $addedCount++
+            Write-Host "   ✅ Membre ajouté : $($user.Name) ($($user.Mail))"
+        }
+        catch {
+            Write-Warning "   ❌ Échec ajout membre : $($user.Name) : $_"
+        }
+    }
+    Write-Host "   Membres initiaux ajoutés : $addedCount/$($seedMembers.Count)"
+
+    # Ajouter les membres restants
+    $addedExtraCount = 0
+    foreach ($user in $remainingMembers) {
+        try {
+            New-MgTeamTagMember -TeamId $TeamId -TeamworkTagId $tagId -UserId $user.UserId -DisplayName $user.Name -ErrorAction Stop
+            $addedExtraCount++
+            Write-Host "   ✅ Membre ajouté (retard) : $($user.Name) ($($user.Mail))"
+        }
+        catch {
+            Write-Warning "   ❌ Échec ajout membre (retard) $($user.Name) : $_"
+        }
+    }
+
+    Write-Host "   Membres ajoutés en plus : $addedExtraCount/$($remainingMembers.Count)"
+
+    # Supprimer du tag les membres non éligibles
+    $currentTagMembers = Get-MgTeamTagMember -TeamId $TeamId -TeamworkTagId $tagId -All
+    $eligibleIds = $eligibleUsers | Select-Object -ExpandProperty UserId
+    $removedCount = 0
+
+    foreach ($member in $currentTagMembers) {
+        if ($eligibleIds -notcontains $member.UserId) {
+            try {
+                Remove-MgTeamTagMember -TeamId $TeamId -TeamworkTagId $tagId -TeamworkTagMemberId $member.Id -ErrorAction Stop
+                $removedCount++
+                Write-Host "   🗑️  Membre retiré non eligible : $($member.UserId)"
+            }
+            catch {
+                Write-Warning "   ❌ Échec suppression membre non eligible $($member.UserId) : $_"
+            }
+        }
+    }
+    Write-Host "   Membres retirés non eligible : $removedCount"
+
+    # Récupérer le nombre final de membres du tag
+    $finalTagMembers = Get-MgTeamTagMember -TeamId $TeamId -TeamworkTagId $tagId -All
+    Write-Host "   Membres dans tag après cleanup : $($finalTagMembers.Count)"
+}
+catch {
+    Write-Error "Erreur création tag avec membres : $_"
+    exit 1
+}
+
+# ========================
+# RAPPORT FINAL
+# ========================
+Write-Host ""
+Write-Host "┌────────────────────────────────────┐"
+Write-Host "│ RÉSUMÉ FINAL                       │"
+Write-Host "├────────────────────────────────────┤"
+Write-Host "│ CSV exporté                 : ✅"
+Write-Host "│ Utilisateurs eligibles      : $($eligibleUsers.Count)"
+Write-Host "│ Adresses email              :"
+foreach ($user in $eligibleUsers) {
+    Write-Host "│   - $($user.Mail)"
+}
+Write-Host "│"
+Write-Host "│ Tag '$TagName' créé       : ✅"
+Write-Host "│ Membres taggés              : $($memberIds.Count)"
+Write-Host "└────────────────────────────────────┘"
+
+Write-Host ""
+Write-Host "✅ Succès - Tag créé avec les membres éligibles"
